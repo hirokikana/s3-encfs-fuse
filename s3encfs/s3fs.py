@@ -19,9 +19,11 @@ class S3Client():
         s3config = Config('s3.conf')
         aws_keys = s3config.get_aws_keys()
         conn = S3Connection(aws_keys['key'], aws_keys['secret'])
-        bucket_name = 's3-enfs-fuse'
+        bucket_name = s3config.get_bucket_name()
         self.bucket = conn.get_bucket(bucket_name)
-        self.encryptor = Encryptor("password")
+        self.encryptor = Encryptor(s3config.get_encrypt_password())
+        self.is_dir_cache = {}
+        self.is_exists_cache = {}
 
     def create_file(self,path):
         newfile = self.bucket.new_key(path)
@@ -124,21 +126,30 @@ class S3Client():
         return usage_byte
     
     def __is_directory(self,path):
+        if path in self.is_dir_cache.keys() and self.is_dir_cache[path]['expire'] < time():
+            return self.is_dir_cache[path]['response']
         if self.bucket.get_key(path) == None or path == '/':
+            self.is_dir_cache[path] = {'expire' : time() + 1, 'response': True}
             return True
         else:
+            self.is_dir_cache[path] = {'expire' : time() + 1, 'response': False}
             return False
 
     def __is_exists(self, path):
+        if path in self.is_exists_cache.keys() and self.is_exists_cache[path]['expire'] < time():
+            return self.is_exists_cache[path]['response']
         if self.bucket.get_key(path) == None and self.bucket.get_key('%s/' % path) == None:
+            self.is_exists_cache[path] = {'expire' : time() + 1, 'response': False}
             return False
         else:
+            self.is_exists_cache[path] = {'expire' : time() + 1, 'response': True}
             return True
 
 class S3FS(LoggingMixIn, Operations):
     def __init__(self):
         self.s3client = S3Client()
         self.fd = 0
+        self.write_cache = {}
     
     def chmod(self, path, mode):
         pass
