@@ -12,6 +12,7 @@ from time import time,mktime
 from datetime import datetime as dt
 
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
+from s3encfs.encryptor import Encryptor
 
 class S3Client():
     def __init__(self):
@@ -20,6 +21,7 @@ class S3Client():
         conn = S3Connection(aws_keys['key'], aws_keys['secret'])
         bucket_name = 's3-enfs-fuse'
         self.bucket = conn.get_bucket(bucket_name)
+        self.encryptor = Encryptor("password")
 
     def create_file(self,path):
         newfile = self.bucket.new_key(path)
@@ -60,7 +62,8 @@ class S3Client():
 
     def read_file(self, path, size, offset):
         filekey = self.bucket.get_key(path)
-        data = filekey.get_contents_as_string()
+        raw_data = filekey.get_contents_as_string()
+        data = self.encryptor.deencrypt(raw_data)
         return data[offset:offset + size]
 
     def delete(self, path):
@@ -77,9 +80,10 @@ class S3Client():
 
     def write(self, path, data, offset):
         filekey = self.bucket.get_key(path)
-        current_data = filekey.get_contents_as_string()
+        raw_current_data = filekey.get_contents_as_string()
+        current_data = self.encryptor.deencrypt(raw_current_data)
         current_data = current_data[:offset] + data
-        filekey.set_contents_from_string(current_data)
+        filekey.set_contents_from_string(self.encryptor.encrypt(current_data))
         return len(data)
 
     def get_filelist(self, path):
@@ -118,7 +122,6 @@ class S3Client():
         for key in self.bucket.list():
             usage_byte += key.size
         return usage_byte
-
     
     def __is_directory(self,path):
         if self.bucket.get_key(path) == None or path == '/':
